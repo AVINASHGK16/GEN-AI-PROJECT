@@ -3,28 +3,65 @@ import fitz  # PyMuPDF
 import docx
 import spacy
 from sentence_transformers import SentenceTransformer, util
-from langchain_openai import ChatOpenAI
+#
+# --- CHANGE 1: Swapped OpenAI with Google Generative AI ---
+from langchain_google_genai import ChatGoogleGenerativeAI
+#
 from langchain.prompts import PromptTemplate
+import sqlite3
+import pandas as pd
+from datetime import datetime
 
-# --- Model Loading ---
+# --- Database Setup (No changes) ---
+def init_db():
+    conn = sqlite3.connect('resume_analysis.db')
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY,
+            timestamp DATETIME,
+            resume_name TEXT,
+            jd_name TEXT,
+            score INTEGER,
+            verdict TEXT,
+            feedback TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
+def save_result(resume_name, jd_name, score, verdict, feedback):
+    conn = sqlite3.connect('resume_analysis.db')
+    c = conn.cursor()
+    timestamp = datetime.now()
+    c.execute("INSERT INTO results (timestamp, resume_name, jd_name, score, verdict, feedback) VALUES (?, ?, ?, ?, ?, ?)",
+              (timestamp, resume_name, jd_name, score, verdict, feedback))
+    conn.commit()
+    conn.close()
+
+def get_all_results():
+    conn = sqlite3.connect('resume_analysis.db')
+    df = pd.read_sql_query("SELECT timestamp, resume_name, jd_name, score, verdict FROM results ORDER BY timestamp DESC", conn)
+    conn.close()
+    return df
+
+init_db()
+
+
+# --- Model Loading (No changes) ---
 @st.cache_resource
 def load_spacy_model():
-    """Loads the spaCy model."""
     return spacy.load("en_core_web_sm")
 
 @st.cache_resource
 def load_sentence_transformer_model():
-    """Loads the Sentence Transformer model."""
     return SentenceTransformer('all-MiniLM-L6-v2')
 
 nlp = load_spacy_model()
 st_model = load_sentence_transformer_model()
 
 # --- Helper Functions ---
-
 def extract_text_from_file(file):
-    """Extracts text from PDF or DOCX file."""
     if file.type == "application/pdf":
         text = ""
         with fitz.open(stream=file.read(), filetype="pdf") as doc:
@@ -37,7 +74,6 @@ def extract_text_from_file(file):
     return ""
 
 def extract_skills(text, skill_keywords):
-    """Extracts skills from text."""
     doc = nlp(text.lower())
     found_skills = set()
     for skill in skill_keywords:
@@ -46,31 +82,29 @@ def extract_skills(text, skill_keywords):
     return list(found_skills)
 
 def calculate_semantic_similarity(text1, text2):
-    """Calculates semantic similarity."""
     embedding1 = st_model.encode(text1, convert_to_tensor=True)
     embedding2 = st_model.encode(text2, convert_to_tensor=True)
     cosine_scores = util.cos_sim(embedding1, embedding2)
     return cosine_scores.item() * 100
 
+#
+# --- CHANGE 2: Updated function to use Google Gemini ---
 def generate_feedback(jd_text, missing_skills):
-    """Generates personalized feedback using an LLM."""
+    """Generates personalized feedback using Google Gemini."""
     try:
-        # Check if the API key is available in secrets
-        if not st.secrets["OPENAI_API_KEY"]:
-            return "OpenAI API key not found. Please add it to your secrets file."
+        if "GOOGLE_API_KEY" not in st.secrets or not st.secrets["GOOGLE_API_KEY"]:
+            return "Google API key not found. Please add it to your Streamlit secrets."
             
-        llm = ChatOpenAI(api_key=st.secrets["OPENAI_API_KEY"], model_name="gpt-3.5-turbo", temperature=0.5)
+        # Initialize the Google Gemini model instead of ChatOpenAI
+        llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=st.secrets["GOOGLE_API_KEY"], temperature=0.5)
         
+        # The prompt and the rest of the logic remain the same
         feedback_prompt = PromptTemplate(
             input_variables=["job_description", "missing_skills"],
             template="""
             You are an expert career coach providing feedback to a student applying for a job.
-            
-            Job Description Summary:
-            {job_description}
-            
-            The student's resume is missing the following key skills mentioned in the job description: {missing_skills}.
-            
+            Job Description Summary: {job_description}
+            The student's resume is missing the following key skills: {missing_skills}.
             Please provide a short, encouraging paragraph of personalized feedback.
             Suggest 1-2 practical ways the student could gain experience in these missing areas (e.g., online courses, personal projects).
             Keep the tone positive and constructive.
@@ -83,11 +117,10 @@ def generate_feedback(jd_text, missing_skills):
     except Exception as e:
         return f"Could not generate feedback due to an error: {e}"
 
-# --- Streamlit App Interface ---
+# --- Streamlit App Interface (No changes) ---
 st.set_page_config(page_title="Automated Resume Relevance Checker", layout="wide")
 st.title("🤖 Automated Resume Relevance Check System")
 
-# Define columns for layout
 col1, col2 = st.columns([1, 2])
 
 with col1:
@@ -108,30 +141,36 @@ if analyze_button and jd_file and resume_file:
     
     with col2:
         st.header("Analysis Results")
-        with st.spinner("Analyzing..."):
+        with st.spinner("Analyzing... This may take a moment."):
             jd_skills = extract_skills(jd_text, SKILL_KEYWORDS)
             resume_skills = extract_skills(resume_text, SKILL_KEYWORDS)
             common_skills = list(set(jd_skills) & set(resume_skills))
             missing_skills = list(set(jd_skills) - set(resume_skills))
-            
             hard_match_score = (len(common_skills) / len(jd_skills) * 100) if jd_skills else 0
             semantic_score = calculate_semantic_similarity(jd_text, resume_text)
+            final_score = int((hard_match_score * 0.4) + (semantic_score * 0.6))
             
-            final_score = (hard_match_score * 0.4) + (semantic_score * 0.6)
-            
-            st.subheader(f"Final Relevance Score: {int(final_score)}%")
-            st.progress(int(final_score))
+            if final_score >= 75: 
+                verdict = "High Suitability"
+                st.success(f"Verdict: **{verdict}**")
+            elif final_score >= 50: 
+                verdict = "Medium Suitability"
+                st.warning(f"Verdict: **{verdict}**")
+            else: 
+                verdict = "Low Suitability"
+                st.error(f"Verdict: **{verdict}**")
 
-            if final_score >= 75:
-                st.success("Verdict: **High Suitability**")
-            elif final_score >= 50:
-                st.warning("Verdict: **Medium Suitability**")
-            else:
-                st.error("Verdict: **Low Suitability**")
+            st.subheader(f"Final Relevance Score: {final_score}%")
+            st.progress(final_score)
             
             st.subheader("Personalized Feedback")
-            feedback = generate_feedback(jd_text, missing_skills)
+            if missing_skills:
+                feedback = generate_feedback(jd_text, missing_skills)
+            else:
+                feedback = "Excellent! The resume appears to contain all the key skills from the job description."
             st.markdown(feedback)
+            
+            save_result(resume_file.name, jd_file.name, final_score, verdict, feedback)
 
             with st.expander("Show Detailed Analysis"):
                 st.markdown(f"**✅ Common Skills ({len(common_skills)}):** `{', '.join(common_skills) if common_skills else 'None'}`")
@@ -141,3 +180,6 @@ if analyze_button and jd_file and resume_file:
 else:
     with col2:
         st.info("Upload a job description and a resume, then click 'Analyze'.")
+
+st.header("Submission History")
+st.dataframe(get_all_results(), use_container_width=True)
