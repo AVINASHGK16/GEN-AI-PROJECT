@@ -11,7 +11,7 @@ from langchain.prompts import PromptTemplate
 import sqlite3
 import pandas as pd
 from datetime import datetime
-
+import io
 # --- Database Setup (No changes) ---
 def init_db():
     conn = sqlite3.connect('resume_analysis.db')
