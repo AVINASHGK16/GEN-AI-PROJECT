@@ -48,17 +48,34 @@ def get_all_results():
 init_db()
 
 
-# --- Model Loading (No changes) ---
-@st.cache_resource
-def load_spacy_model():
-    return spacy.load("en_core_web_sm")
+
+# --- Model Loading (NEW and IMPROVED) ---
+
+# We are no longer using @st.cache_resource for the spaCy model
+# to allow for the download check.
+
+MODEL_NAME = "en_core_web_sm"
+
+def download_spacy_model():
+    """Downloads the spaCy model if it's not already installed."""
+    try:
+        spacy.load(MODEL_NAME)
+    except OSError:
+        st.info(f"Downloading spaCy model ({MODEL_NAME})... This may take a moment.")
+        spacy.cli.download(MODEL_NAME)
+        st.rerun() # Rerun the app to load the model after download
+
+download_spacy_model()
+nlp = spacy.load(MODEL_NAME)
 
 @st.cache_resource
 def load_sentence_transformer_model():
+    """Loads the Sentence Transformer model."""
     return SentenceTransformer('all-MiniLM-L6-v2')
 
-nlp = load_spacy_model()
 st_model = load_sentence_transformer_model()
+
+# --- The rest of your app.py code remains exactly the same ---
 
 # --- Helper Functions ---
 def extract_text_from_file(file):

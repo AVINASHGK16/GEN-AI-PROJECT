@@ -1,7 +1,7 @@
 streamlit
 PyMuPDF
 python-docx
-spacy
+spacy==3.7.2
 sentence-transformers
 langchain
 langchain-google-genai
