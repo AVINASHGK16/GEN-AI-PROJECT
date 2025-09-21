@@ -1,7 +1,8 @@
 streamlit
 PyMuPDF
 python-docx
-spacy==3.7.2
+spacy @ https://files.pythonhosted.org/packages/b9/03/b3671a5d613a0715af9b5d387a32d634268e3b08e2a3928236113b7afb17/spacy-3.7.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
 sentence-transformers
 langchain
 langchain-google-genai
